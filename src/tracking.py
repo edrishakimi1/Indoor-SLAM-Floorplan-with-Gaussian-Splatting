@@ -1,6 +1,7 @@
 # tracking.py
 # This file handles camera pose estimation (tracking).
 # It loads RGB-D frames, matches them, and prepares them for SLAM.
+import numpy as np
 
 def read_assoc_file(file_path):
     """
@@ -128,7 +129,7 @@ def initialize_pose():
     Return the starting camera pose.
     Usually this is a 4x4 identity matrix (camera starts at origin).
     """
-    pass
+    return np.eye(4)
 
 
 def track_frame(prev_frame, curr_frame, prev_pose):
