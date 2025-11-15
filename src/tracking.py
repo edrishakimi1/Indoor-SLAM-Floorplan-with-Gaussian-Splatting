@@ -2,6 +2,7 @@
 # This file handles camera pose estimation (tracking).
 # It loads RGB-D frames, matches them, and prepares them for SLAM.
 import numpy as np
+import open3d as o3d
 
 def read_assoc_file(file_path):
     """
@@ -143,7 +144,56 @@ def track_frame(prev_frame, curr_frame, prev_pose):
     Returns:
         A 4x4 matrix representing the new camera pose.
     """
-    pass
+    fx, fy, cx, cy = prev_frame["intrinsics"]
+
+    # --- 1. Load images ---
+    rgb_prev  = o3d.io.read_image(prev_frame["rgb_path"])
+    depth_prev = o3d.io.read_image(prev_frame["depth_path"])
+
+    rgb_curr  = o3d.io.read_image(curr_frame["rgb_path"])
+    depth_curr = o3d.io.read_image(curr_frame["depth_path"])
+
+    # --- 2. Create RGBD frames ---
+    rgbd_prev = o3d.geometry.RGBDImage.create_from_color_and_depth(
+        rgb_prev, depth_prev, convert_rgb_to_intensity=False
+    )
+
+    rgbd_curr = o3d.geometry.RGBDImage.create_from_color_and_depth(
+        rgb_curr, depth_curr, convert_rgb_to_intensity=False
+    )
+
+    # --- 3. Create intrinsics ---
+    w = np.asarray(rgb_prev).shape[1]
+    h = np.asarray(rgb_prev).shape[0]
+
+    intr = o3d.camera.PinholeCameraIntrinsic(w, h, fx, fy, cx, cy)
+
+    # --- 4. Create point clouds ---
+    pcd_prev = o3d.geometry.PointCloud.create_from_rgbd_image(rgbd_prev, intr)
+    pcd_curr = o3d.geometry.PointCloud.create_from_rgbd_image(rgbd_curr, intr)
+    if len(pcd_prev.points) < 100 or len(pcd_curr.points) < 100:
+        print("Skipping frame due to insufficient points")
+        return prev_pose
+    pcd_prev.estimate_normals()
+    pcd_curr.estimate_normals()
+
+    # --- 5. ICP Registration ---
+    init_guess = np.eye(4)
+
+    result = o3d.pipelines.registration.registration_icp(
+        source=pcd_curr,
+        target=pcd_prev,   # FIXED
+        max_correspondence_distance=0.05,
+        init=init_guess,
+        estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPlane()
+    )
+
+    T = result.transformation
+
+    # --- 6. Update pose ---
+    curr_pose = prev_pose @ T
+
+    return curr_pose
 
 
 def run_tracking(dataset_dir, output_path):
@@ -156,7 +206,49 @@ def run_tracking(dataset_dir, output_path):
         - update pose
     4. Save poses to results file in TUM format
     """
-    pass
+    print("Loading data...")
+    frames = load_rgbd_data(dataset_dir)
+
+    print("Starting tracking on", len(frames), "frames")
+
+    # --- 1. Prepare storage ---
+    poses = []
+
+    # --- 2. Initial camera pose (identity) ---
+    pose = initialize_pose()
+    poses.append((frames[0]["timestamp"], pose))
+
+    # --- 3. Loop through all frame pairs ---
+    for i in range(1, len(frames)):
+        prev_frame = frames[i - 1]
+        curr_frame = frames[i]
+
+        print(f"Tracking frame {i}/{len(frames)-1}...")
+
+        try:
+            pose = track_frame(prev_frame, curr_frame, pose)
+        except Exception as e:
+            print("Tracking failed at frame", i, "error:", e)
+            # keep previous pose to avoid crash
+            poses.append((curr_frame["timestamp"], pose))
+            continue
+
+        poses.append((curr_frame["timestamp"], pose))
+
+    # --- 4. Save results in TUM format ---
+    print("Saving trajectory to:", output_path)
+    with open(output_path, "w") as f:
+        for ts, T in poses:
+            # position
+            tx, ty, tz = T[0, 3], T[1, 3], T[2, 3]
+
+            # dummy quaternion rotation (no rotation)
+            qx, qy, qz, qw = 0, 0, 0, 1
+
+            f.write(f"{ts} {tx} {ty} {tz} {qx} {qy} {qz} {qw}\n")
+
+    print("Tracking complete.")
+
 
 
 if __name__ == "__main__":
