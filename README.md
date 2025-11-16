@@ -65,7 +65,7 @@ Place the downloaded dataset inside the `data/` folder.
 ---
 
 ## Work in Progress
-- [ ] Implement tracking
+- [WIP] Implement tracking
 - [ ] Build Gaussian splat mapping
 - [ ] Extract 2D floorplan
 - [ ] Add coverage heatmap
