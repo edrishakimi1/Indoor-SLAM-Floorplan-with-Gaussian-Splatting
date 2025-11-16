@@ -171,9 +171,6 @@ def track_frame(prev_frame, curr_frame, prev_pose):
     # --- 4. Create point clouds ---
     pcd_prev = o3d.geometry.PointCloud.create_from_rgbd_image(rgbd_prev, intr)
     pcd_curr = o3d.geometry.PointCloud.create_from_rgbd_image(rgbd_curr, intr)
-    if len(pcd_prev.points) < 100 or len(pcd_curr.points) < 100:
-        print("Skipping frame due to insufficient points")
-        return prev_pose
     pcd_prev.estimate_normals()
     pcd_curr.estimate_normals()
 
